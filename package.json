@@ -1,0 +1,37 @@
+{
+  "name": "greyhound-stats",
+  "version": "1.0.0",
+  "description": "",
+  "main": "script.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "scrape": "tsx src/scraper.ts"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "@types/dotenv": "^8.2.3",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.9.1",
+    "@types/sqlite3": "^5.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "eslint": "^9.38.0",
+    "globals": "^16.4.0",
+    "jiti": "^2.6.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "date-fns-tz": "^3.2.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7",
+    "tsx": "4.19.4"
+  }
+}
