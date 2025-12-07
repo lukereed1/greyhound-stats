@@ -1,56 +1,76 @@
-// src/db.ts
-import sqlite3 from 'sqlite3';
-import { open, Database } from 'sqlite';
+import Database from 'better-sqlite3';
+import type { Database as DatabaseType } from 'better-sqlite3';
+import path from 'path';
 
-export async function openDb() {
-  return open({
-    filename: './runs.db',
-    driver: sqlite3.Database
-  });
+let db: DatabaseType | null = null;
+const DB_PATH = path.join(process.cwd(), 'runs.db');
+
+export function getDb(): DatabaseType {
+  if (!db) {
+    console.log(`[DB] Opening database at: ${DB_PATH}`);
+    db = new Database(DB_PATH);
+    db.pragma('journal_mode = WAL');
+  }
+  return db;
 }
 
-// === QUERIES ===
-export const getDogStats = async (db: Database) => {
-  return db.all(`
+export async function openDb(): Promise<DatabaseType> {
+  return getDb();
+}
+
+export function getOne(db: DatabaseType, sql: string): any {
+  return db.prepare(sql).get();
+}
+
+export const getDogStats = async (db: DatabaseType) => {
+  const start = Date.now();
+  const result = db.prepare(`
     SELECT dogId,
       COUNT(*) as totalStarts,
       SUM(CASE WHEN place = 1 THEN 1 ELSE 0 END) as wins,
       SUM(CASE WHEN place IN (1, 2, 3) THEN 1 ELSE 0 END) as places
     FROM runs
-    WHERE scratched = 0 OR scratched IS NULL
+    WHERE scratched = 0
     GROUP BY dogId
-  `);
+  `).all();
+  console.log(`[DB] getDogStats: ${((Date.now() - start) / 1000).toFixed(1)}s, ${result.length} dogs`);
+  return result;
 };
 
-export const getTrainerStats = async (db: Database) => {
-  return db.all(`
+export const getTrainerStats = async (db: DatabaseType) => {
+  const start = Date.now();
+  const result = db.prepare(`
     SELECT trainerId,
       COUNT(*) as totalStarts,
       SUM(CASE WHEN place = 1 THEN 1 ELSE 0 END) as wins
     FROM runs
-    WHERE (scratched = 0 OR scratched IS NULL) AND trainerId IS NOT NULL
+    WHERE scratched = 0 AND trainerId IS NOT NULL
     GROUP BY trainerId
-  `);
+  `).all();
+  console.log(`[DB] getTrainerStats: ${((Date.now() - start) / 1000).toFixed(1)}s, ${result.length} trainers`);
+  return result;
 };
 
-export const getBoxBiasStats = async (db: Database) => {
-  return db.all(`
+export const getBoxBiasStats = async (db: DatabaseType) => {
+  const start = Date.now();
+  const result = db.prepare(`
     SELECT trackCode, boxNumber,
       COUNT(*) as totalStarts,
       SUM(CASE WHEN place = 1 THEN 1 ELSE 0 END) as wins
     FROM runs
-    WHERE (scratched = 0 OR scratched IS NULL)
+    WHERE scratched = 0
       AND trackCode IS NOT NULL
-      AND boxNumber IS NOT NULL
       AND boxNumber > 0
     GROUP BY trackCode, boxNumber
-  `);
+  `).all();
+  console.log(`[DB] getBoxBiasStats: ${((Date.now() - start) / 1000).toFixed(1)}s`);
+  return result;
 };
 
-// UPDATED QUERY: Split into two separate queries to handle times and splits independently
-export const getRecentPerformanceStats = async (db: Database) => {
-  // Get average times (doesn't require split times)
-  const timeStats = await db.all(`
+export const getRecentPerformanceStats = async (db: DatabaseType) => {
+  const start = Date.now();
+  
+  const timeStats = db.prepare(`
     WITH RankedRuns AS (
       SELECT dogId, trackCode, distanceInMetres, resultTime,
         ROW_NUMBER() OVER(PARTITION BY dogId, trackCode, distanceInMetres ORDER BY meetingDate DESC) as rn
@@ -64,10 +84,9 @@ export const getRecentPerformanceStats = async (db: Database) => {
     WHERE rn <= 5
     GROUP BY dogId, trackCode, distanceInMetres
     HAVING COUNT(*) >= 1
-  `);
+  `).all();
 
-  // Get average splits (separate query for split times)
-  const splitStats = await db.all(`
+  const splitStats = db.prepare(`
     WITH RankedRuns AS (
       SELECT dogId, trackCode, distanceInMetres, firstSplitTime,
         ROW_NUMBER() OVER(PARTITION BY dogId, trackCode, distanceInMetres ORDER BY meetingDate DESC) as rn
@@ -80,12 +99,11 @@ export const getRecentPerformanceStats = async (db: Database) => {
     WHERE rn <= 5
     GROUP BY dogId, trackCode, distanceInMetres
     HAVING COUNT(*) >= 1
-  `);
+  `).all();
 
-  // Merge the results
   const mergedMap = new Map();
   
-  timeStats.forEach(row => {
+  (timeStats as any[]).forEach((row: any) => {
     const key = `${row.dogId}-${row.trackCode}-${row.distanceInMetres}`;
     mergedMap.set(key, {
       dogId: row.dogId,
@@ -97,7 +115,7 @@ export const getRecentPerformanceStats = async (db: Database) => {
     });
   });
 
-  splitStats.forEach(row => {
+  (splitStats as any[]).forEach((row: any) => {
     const key = `${row.dogId}-${row.trackCode}-${row.distanceInMetres}`;
     if (mergedMap.has(key)) {
       mergedMap.get(key).avgSplitLast5TrackDist = row.avgSplitLast5TrackDist;
@@ -113,11 +131,13 @@ export const getRecentPerformanceStats = async (db: Database) => {
     }
   });
 
+  console.log(`[DB] getRecentPerformanceStats: ${((Date.now() - start) / 1000).toFixed(1)}s`);
   return Array.from(mergedMap.values());
 };
 
-export const getLastRaceGrades = async (db: Database) => {
-  return db.all(`
+export const getLastRaceGrades = async (db: DatabaseType) => {
+  const start = Date.now();
+  const result = db.prepare(`
     WITH LastRun AS (
       SELECT dogId, outgoingGrade,
         ROW_NUMBER() OVER(PARTITION BY dogId ORDER BY meetingDate DESC, raceNumber DESC) as rn
@@ -126,87 +146,14 @@ export const getLastRaceGrades = async (db: Database) => {
     )
     SELECT dogId, outgoingGrade as lastRaceOutgoingGrade
     FROM LastRun WHERE rn = 1
-  `);
+  `).all();
+  console.log(`[DB] getLastRaceGrades: ${((Date.now() - start) / 1000).toFixed(1)}s`);
+  return result;
 };
 
-export const getPerformanceRatings = async (db: Database) => {
-  return db.all(`
-    WITH Benchmarks AS (
-      SELECT trackCode, distanceInMetres, MIN(resultTime) as benchmarkTime
-      FROM runs
-      WHERE resultTime > 0 AND (scratched = 0 OR scratched IS NULL)
-      GROUP BY trackCode, distanceInMetres
-    ),
-    RunScores AS (
-      SELECT r.dogId,
-        (b.benchmarkTime / r.resultTime) * 100 as performanceScore,
-        ROW_NUMBER() OVER(PARTITION BY r.dogId ORDER BY r.meetingDate DESC, r.raceNumber DESC) as rn
-      FROM runs r
-      JOIN Benchmarks b ON r.trackCode = b.trackCode AND r.distanceInMetres = b.distanceInMetres
-      WHERE r.resultTime > 0 AND (r.scratched = 0 OR r.scratched IS NULL)
-    )
-    SELECT dogId,
-      AVG(performanceScore) as careerPerformanceScore,
-      AVG(CASE WHEN rn <= 5 THEN performanceScore ELSE NULL END) as last5PerformanceScore
-    FROM RunScores
-    GROUP BY dogId
-  `);
-};
-
-export const getCareerPrizeMoney = async (db: Database) => {
-  return db.all(`
-    WITH LatestRun AS (
-      SELECT dogId, careerPrizeMoney,
-        ROW_NUMBER() OVER(PARTITION BY dogId ORDER BY meetingDate DESC, raceNumber DESC) as rn
-      FROM runs WHERE careerPrizeMoney IS NOT NULL AND careerPrizeMoney > 0
-    )
-    SELECT dogId, careerPrizeMoney FROM LatestRun WHERE rn = 1
-  `);
-};
-
-export const getConsistencyScores = async (db: Database) => {
-  return db.all(`
-    WITH DogStats AS (
-      SELECT dogId,
-        AVG(resultTime) as avgTime,
-        SQRT((SUM(POWER(resultTime, 2)) - POWER(SUM(resultTime), 2) / COUNT(resultTime)) / (COUNT(resultTime) - 1)) as stdevTime
-      FROM runs
-      WHERE resultTime > 0 AND (scratched = 0 OR scratched IS NULL)
-      GROUP BY dogId
-      HAVING COUNT(resultTime) > 4
-    )
-    SELECT dogId, (1 - (stdevTime / avgTime)) * 100 as consistencyScore
-    FROM DogStats WHERE avgTime > 0
-  `);
-};
-
-export const getEarlySpeedRatings = async (db: Database) => {
-  return db.all(`
-    WITH SplitBenchmarks AS (
-      SELECT trackCode, MIN(firstSplitTime) as benchmarkSplit
-      FROM runs
-      WHERE firstSplitTime > 0 AND (scratched = 0 OR scratched IS NULL)
-      GROUP BY trackCode
-    ),
-    SplitRunScores AS (
-      SELECT r.dogId,
-        (b.benchmarkSplit / r.firstSplitTime) * 100 as earlySpeedScore,
-        ROW_NUMBER() OVER(PARTITION BY r.dogId ORDER BY r.meetingDate DESC, r.raceNumber DESC) as rn
-      FROM runs r
-      JOIN SplitBenchmarks b ON r.trackCode = b.trackCode
-      WHERE r.firstSplitTime > 0 AND (r.scratched = 0 OR r.scratched IS NULL)
-    )
-    SELECT dogId,
-      AVG(CASE WHEN rn <= 5 THEN earlySpeedScore ELSE NULL END) as last5EarlySpeedRating
-    FROM SplitRunScores
-    GROUP BY dogId
-  `);
-};
-
-// === NEW ADVANCED QUERIES ===
-
-export const getRunningStyleStats = async (db: Database) => {
-  return db.all(`
+export const getRunningStyleStats = async (db: DatabaseType) => {
+  const start = Date.now();
+  const result = db.prepare(`
     WITH RecentRuns AS (
       SELECT dogId, firstSplitPosition, place,
         ROW_NUMBER() OVER(PARTITION BY dogId ORDER BY meetingDate DESC) as rn
@@ -222,11 +169,14 @@ export const getRunningStyleStats = async (db: Database) => {
     FROM RecentRuns
     WHERE rn <= 10
     GROUP BY dogId
-  `);
+  `).all();
+  console.log(`[DB] getRunningStyleStats: ${((Date.now() - start) / 1000).toFixed(1)}s`);
+  return result;
 };
 
-export const getTrackSpecificStats = async (db: Database) => {
-  return db.all(`
+export const getTrackSpecificStats = async (db: DatabaseType) => {
+  const start = Date.now();
+  const result = db.prepare(`
     SELECT dogId, trackCode,
       COUNT(*) as startsAtTrack,
       SUM(CASE WHEN place = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as winRateAtTrack,
@@ -235,11 +185,14 @@ export const getTrackSpecificStats = async (db: Database) => {
     WHERE (scratched = 0 OR scratched IS NULL)
     GROUP BY dogId, trackCode
     HAVING COUNT(*) >= 3
-  `);
+  `).all();
+  console.log(`[DB] getTrackSpecificStats: ${((Date.now() - start) / 1000).toFixed(1)}s`);
+  return result;
 };
 
-export const getDistanceSpecificStats = async (db: Database) => {
-  return db.all(`
+export const getDistanceSpecificStats = async (db: DatabaseType) => {
+  const start = Date.now();
+  const result = db.prepare(`
     SELECT dogId, distanceInMetres,
       COUNT(*) as startsAtDistance,
       SUM(CASE WHEN place = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as winRateAtDistance,
@@ -249,11 +202,14 @@ export const getDistanceSpecificStats = async (db: Database) => {
     WHERE (scratched = 0 OR scratched IS NULL) AND resultTime > 0
     GROUP BY dogId, distanceInMetres
     HAVING COUNT(*) >= 2
-  `);
+  `).all();
+  console.log(`[DB] getDistanceSpecificStats: ${((Date.now() - start) / 1000).toFixed(1)}s`);
+  return result;
 };
 
-export const getBoxPerformanceByDog = async (db: Database) => {
-  return db.all(`
+export const getBoxPerformanceByDog = async (db: DatabaseType) => {
+  const start = Date.now();
+  const result = db.prepare(`
     SELECT dogId,
       CASE
         WHEN boxNumber IN (1, 2) THEN 'inside'
@@ -269,37 +225,17 @@ export const getBoxPerformanceByDog = async (db: Database) => {
       AND resultTime > 0
     GROUP BY dogId, boxGroup
     HAVING COUNT(*) >= 2
-  `);
+  `).all();
+  console.log(`[DB] getBoxPerformanceByDog: ${((Date.now() - start) / 1000).toFixed(1)}s`);
+  return result;
 };
 
-export const getWeightedRecentForm = async (db: Database) => {
-  return db.all(`
-    WITH RankedRuns AS (
-      SELECT dogId, place, resultTime, meetingDate,
-        ROW_NUMBER() OVER(PARTITION BY dogId ORDER BY meetingDate DESC) as rn
-      FROM runs
-      WHERE (scratched = 0 OR scratched IS NULL) AND resultTime > 0
-    )
-    SELECT dogId,
-      (SUM(CASE WHEN rn = 1 THEN place * 5
-               WHEN rn = 2 THEN place * 4
-               WHEN rn = 3 THEN place * 3
-               WHEN rn = 4 THEN place * 2
-               WHEN rn = 5 THEN place * 1
-               ELSE 0 END) * 1.0) / 15 as weightedAvgPlace,
-      AVG(CASE WHEN rn <= 3 THEN place END) - AVG(CASE WHEN rn BETWEEN 4 AND 6 THEN place END) as recentImprovement
-    FROM RankedRuns
-    WHERE rn <= 6
-    GROUP BY dogId
-  `);
-};
-
-// === TABLE AND INSERT LOGIC ===
-export const createTable = async () => {
-  const db = await openDb();
-  await db.exec(`
+export const createTable = async (): Promise<DatabaseType> => {
+  const db = getDb();
+  db.exec(`
     CREATE TABLE IF NOT EXISTS runs (
-      runId INTEGER PRIMARY KEY, trackCode TEXT, trackName TEXT, distanceInMetres INTEGER,
+      runId INTEGER PRIMARY KEY, 
+      trackCode TEXT, trackName TEXT, distanceInMetres INTEGER,
       raceId INTEGER, meetingDate TEXT, raceTypeCode TEXT, raceType TEXT, dogId INTEGER,
       dogName TEXT, weightInKg REAL, incomingGrade TEXT, outgoingGrade TEXT, gradedTo TEXT,
       rating INTEGER, raceNumber INTEGER, boxNumber INTEGER, boxDrawnOrder INTEGER,
@@ -312,19 +248,21 @@ export const createTable = async () => {
       sireId INTEGER, sireName TEXT, dateWhelped TEXT, isLateScratching INTEGER, last5 TEXT,
       firstSecond TEXT, pir TEXT, careerPrizeMoney REAL, averageSpeed REAL, unplaced TEXT,
       unplacedCode TEXT, totalFormCount INTEGER, bestTime TEXT, firstSplitPosition INTEGER,
-      firstSplitTime REAL, secondSplitTime REAL,
+      firstSplitTime REAL, secondSplitPosition INTEGER, secondSplitTime REAL,
       bestTimeTrackDistance REAL
     )
   `);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_dog_track_dist ON runs (dogId, trackCode, distanceInMetres)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_trainer ON runs (trainerId)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_track_box ON runs (trackCode, boxNumber)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_dog_date ON runs (dogId, meetingDate DESC)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_dog_track_split ON runs (dogId, trackCode)`);
+  
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_dog_track_dist ON runs (dogId, trackCode, distanceInMetres)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_trainer ON runs (trainerId)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_track_box ON runs (trackCode, boxNumber)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_dog_date ON runs (dogId, meetingDate DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_dog_track_split ON runs (dogId, trackCode)`);
+  
   return db;
-}
+};
 
-export const insertRun = async (db: Database, run: any) => {
+export const insertRun = async (db: Database.Database, run: any) => {
   const columns = [
     'runId', 'trackCode', 'trackName', 'distanceInMetres', 'raceId', 'meetingDate', 'raceTypeCode', 'raceType',
     'dogId', 'dogName', 'weightInKg', 'incomingGrade', 'outgoingGrade', 'gradedTo', 'rating', 'raceNumber',
@@ -334,15 +272,15 @@ export const insertRun = async (db: Database, run: any) => {
     'trainerName', 'trainerSuburb', 'trainerState', 'trainerPostCode', 'trainerDistrict', 'isQuad',
     'isBestBet', 'damId', 'damName', 'sireId', 'sireName', 'dateWhelped', 'isLateScratching', 'last5',
     'firstSecond', 'pir', 'careerPrizeMoney', 'averageSpeed', 'unplaced', 'unplacedCode', 'totalFormCount',
-    'bestTime', 'firstSplitPosition', 'firstSplitTime', 'secondSplitTime', 'bestTimeTrackDistance'
+    'bestTime', 'firstSplitPosition', 'firstSplitTime', 'secondSplitPosition', 'secondSplitTime', 'bestTimeTrackDistance'
   ];
+  
+  const placeholders = columns.map(() => '?').join(',');
   const values = columns.map(col => {
     const val = run[col];
     return typeof val === 'boolean' ? (val ? 1 : 0) : val;
   });
-  const placeholders = columns.map(() => '?').join(',');
-  await db.run(
-    `INSERT OR REPLACE INTO runs (${columns.join(',')}) VALUES (${placeholders})`,
-    values
-  );
+  
+  const stmt = db.prepare(`INSERT OR REPLACE INTO runs (${columns.join(',')}) VALUES (${placeholders})`);
+  stmt.run(...values);
 };

@@ -1,4 +1,3 @@
-// src/server.ts
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,21 +6,32 @@ import { getMeetings, getRacesForMeeting } from './api.js';
 import {
   openDb,
   getDogStats, getTrainerStats, getBoxBiasStats,
-  getRecentPerformanceStats, getLastRaceGrades, getPerformanceRatings,
-  getCareerPrizeMoney, getConsistencyScores, getEarlySpeedRatings,
+  getRecentPerformanceStats, getLastRaceGrades,
   getRunningStyleStats, getTrackSpecificStats, getDistanceSpecificStats,
-  getBoxPerformanceByDog, getWeightedRecentForm
+  getBoxPerformanceByDog
 } from './db.js';
+import { getLatestDailyRaces } from './supabase.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3000;
-
 const JURISDICTIONS = ['VIC', 'NSW', 'QLD', 'SA', 'WA', 'TAS', 'ACT', 'NT', 'NZ'];
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Greyhound Stats API is running',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      races: '/api/daily-races',
+      todayAll: '/api/races/today/all'
+    }
+  });
+});
 
 function determineRunningStyle(avgFirstSplitPos: number | null, leadRate: number | null): string {
   if (avgFirstSplitPos === null || leadRate === null) return 'Unknown';
@@ -32,25 +42,37 @@ function determineRunningStyle(avgFirstSplitPos: number | null, leadRate: number
 
 function determineBoxPreference(boxNumber: number, boxPreferenceData: any[] | null): string {
   if (!boxNumber || !boxPreferenceData || boxPreferenceData.length === 0) return 'Unknown';
-
   const currentBoxGroup = boxNumber <= 2 ? 'inside' : (boxNumber <= 5 ? 'middle' : 'outside');
-
   const bestGroup = boxPreferenceData.reduce((best: any, curr: any) => 
     (!best || curr.winRate > best.winRate) ? curr : best
   , null);
-
   if (!bestGroup) return 'Unknown';
-  
   if (bestGroup.boxGroup === currentBoxGroup) return 'Good';
-
   const currentGroupData = boxPreferenceData.find((g: any) => g.boxGroup === currentBoxGroup);
   if (!currentGroupData) return 'Neutral';
-
   const diff = bestGroup.winRate - currentGroupData.winRate;
-
   return diff > 0.10 ? 'Poor' : 'Neutral';
 }
 
+function getGradeValue(grade: string | null): number {
+  if (!grade) return 99;
+  const g = grade.toLowerCase();
+  if (g.includes('group') || g.includes('free') || g.includes('open') || g.includes('special')) return 1;
+  if (g.includes('1')) return 1;
+  if (g.includes('2')) return 2;
+  if (g.includes('3')) return 3;
+  if (g.includes('4')) return 4;
+  if (g.includes('5')) return 5;
+  if (g.includes('6') || g.includes('7') || g.includes('maiden') || g.includes('m')) return 6;
+  return 5;
+}
+
+function calculateClassDrop(lastGrade: string | null, currentGrade: string | null): boolean {
+  if (!lastGrade || !currentGrade) return false;
+  const lastVal = getGradeValue(lastGrade);
+  const curVal = getGradeValue(currentGrade);
+  return lastVal < curVal;
+}
 
 app.get('/api/races/today/all', async (req, res) => {
   let db;
@@ -71,9 +93,8 @@ app.get('/api/races/today/all', async (req, res) => {
       }
     });
     await Promise.all(meetingPromises);
-    console.log("Finished fetching all meetings.");
 
-    const allMeetings = [].concat(...Object.values(allMeetingsByJur));
+    const allMeetings: any[] = [].concat(...Object.values(allMeetingsByJur) as any);
     const racePromises = allMeetings.map(async (meeting) => {
       try {
         const races = await getRacesForMeeting(meeting.meetingId);
@@ -85,7 +106,6 @@ app.get('/api/races/today/all', async (req, res) => {
       }
     });
     const raceResults = await Promise.all(racePromises);
-    console.log("Finished fetching all races.");
 
     const racesByMeetingId = new Map();
     raceResults.forEach(result => {
@@ -94,7 +114,7 @@ app.get('/api/races/today/all', async (req, res) => {
 
     const allData: { [key: string]: any[] } = {};
     for (const jur in allMeetingsByJur) {
-      allData[jur] = allMeetingsByJur[jur].map(meeting => {
+      allData[jur] = allMeetingsByJur[jur]!.map(meeting => {
         const raceResult = racesByMeetingId.get(meeting.meetingId);
         return {
           ...meeting,
@@ -105,55 +125,44 @@ app.get('/api/races/today/all', async (req, res) => {
     }
 
     db = await openDb();
-    console.log("Fetching all statistics from DB...");
     
     const [
       dogStats, trainerStats, boxBiasStats, recentPerfStats,
-      lastRaceGrades, performanceRatings, prizeMoney, 
-      consistencyScores, earlySpeedRatings,
-      runningStyleStats, trackSpecificStats, distanceSpecificStats,
-      boxPerformanceStats, weightedRecentForm
+      lastRaceGrades, runningStyleStats, trackSpecificStats, distanceSpecificStats,
+      boxPerformanceStats
     ] = await Promise.all([
       getDogStats(db), getTrainerStats(db), getBoxBiasStats(db),
-      getRecentPerformanceStats(db), getLastRaceGrades(db), getPerformanceRatings(db),
-      getCareerPrizeMoney(db), getConsistencyScores(db), getEarlySpeedRatings(db),
+      getRecentPerformanceStats(db), getLastRaceGrades(db),
       getRunningStyleStats(db), getTrackSpecificStats(db), getDistanceSpecificStats(db),
-      getBoxPerformanceByDog(db), getWeightedRecentForm(db)
+      getBoxPerformanceByDog(db)
     ]);
 
-    const dogStatsMap = new Map(dogStats.map(r => [r.dogId, {
+    const dogStatsMap = new Map<number, { totalStarts: number; winRate: number; placeRate: number }>(dogStats.map((r: any) => [r.dogId, {
       totalStarts: r.totalStarts,
       winRate: r.totalStarts > 0 ? r.wins / r.totalStarts : 0,
       placeRate: r.totalStarts > 0 ? r.places / r.totalStarts : 0
     }]));
-    const trainerStatsMap = new Map(trainerStats.map(r => [r.trainerId, {
+    const trainerStatsMap = new Map<number, { trainerStrikeRate: number }>(trainerStats.map((r: any) => [r.trainerId, {
       trainerStrikeRate: r.totalStarts > 0 ? r.wins / r.totalStarts : 0
     }]));
-    const boxBiasStatsMap = new Map(boxBiasStats.map(r => 
+    const boxBiasStatsMap = new Map<string, { boxWinPercentage: number }>(boxBiasStats.map((r: any) => 
       [`${r.trackCode}-${r.boxNumber}`, {
         boxWinPercentage: r.totalStarts > 0 ? r.wins / r.totalStarts : 0
       }]));
-    const recentPerfStatsMap = new Map(recentPerfStats.map(r => 
+    const recentPerfStatsMap = new Map<string, { avgTimeLast5TrackDist: number | null; avgSplitLast5TrackDist: number | null }>(recentPerfStats.map((r: any) => 
       [`${r.dogId}-${r.trackCode}-${r.distanceInMetres}`, {
         avgTimeLast5TrackDist: r.avgTimeLast5TrackDist,
         avgSplitLast5TrackDist: r.avgSplitLast5TrackDist
       }]));
-    const lastRaceGradeMap = new Map(lastRaceGrades.map(r => [r.dogId, r.lastRaceOutgoingGrade]));
-    const performanceRatingsMap = new Map(performanceRatings.map(r => [r.dogId, {
-      careerPerformanceScore: r.careerPerformanceScore,
-      last5PerformanceScore: r.last5PerformanceScore
-    }]));
-    const prizeMoneyMap = new Map(prizeMoney.map(r => [r.dogId, r.careerPrizeMoney]));
-    const consistencyMap = new Map(consistencyScores.map(r => [r.dogId, r.consistencyScore]));
-    const earlySpeedMap = new Map(earlySpeedRatings.map(r => [r.dogId, r.last5EarlySpeedRating]));
-    const runningStyleMap = new Map(runningStyleStats.map(r => [r.dogId, {
+    const lastRaceGradeMap = new Map<number, string | null>(lastRaceGrades.map((r: any) => [r.dogId, r.lastRaceOutgoingGrade]));
+    const runningStyleMap = new Map<number, { avgFirstSplitPosition: number | null; avgFirstSplitPositionL5: number | null; leadAtFirstBendRate: number | null }>(runningStyleStats.map((r: any) => [r.dogId, {
       avgFirstSplitPosition: r.avgFirstSplitPosition,
       avgFirstSplitPositionL5: r.avgFirstSplitPositionL5,
       leadAtFirstBendRate: r.leadAtFirstBendRate
     }]));
     
-    const trackSpecificMap = new Map();
-    trackSpecificStats.forEach(r => {
+    const trackSpecificMap = new Map<string, { startsAtTrack: number; winRateAtTrack: number; placeRateAtTrack: number }>();
+    trackSpecificStats.forEach((r: any) => {
       const key = `${r.dogId}-${r.trackCode}`;
       trackSpecificMap.set(key, {
         startsAtTrack: r.startsAtTrack,
@@ -162,8 +171,8 @@ app.get('/api/races/today/all', async (req, res) => {
       });
     });
 
-    const distanceSpecificMap = new Map();
-    distanceSpecificStats.forEach(r => {
+    const distanceSpecificMap = new Map<string, { startsAtDistance: number; winRateAtDistance: number; placeRateAtDistance: number }>();
+    distanceSpecificStats.forEach((r: any) => {
       const key = `${r.dogId}-${r.distanceInMetres}`;
       distanceSpecificMap.set(key, {
         startsAtDistance: r.startsAtDistance,
@@ -172,12 +181,12 @@ app.get('/api/races/today/all', async (req, res) => {
       });
     });
 
-    const boxPerformanceMap = new Map();
-    boxPerformanceStats.forEach(r => {
+    const boxPerformanceMap = new Map<number, { boxGroup: string; starts: number; winRate: number; avgTime: number }[]>();
+    boxPerformanceStats.forEach((r: any) => {
       if (!boxPerformanceMap.has(r.dogId)) {
         boxPerformanceMap.set(r.dogId, []);
       }
-      boxPerformanceMap.get(r.dogId).push({
+      boxPerformanceMap.get(r.dogId)!.push({
         boxGroup: r.boxGroup,
         starts: r.starts,
         winRate: r.winRate,
@@ -185,19 +194,12 @@ app.get('/api/races/today/all', async (req, res) => {
       });
     });
 
-    const weightedFormMap = new Map(weightedRecentForm.map(r => [r.dogId, {
-      weightedAvgPlace: r.weightedAvgPlace,
-      recentImprovement: r.recentImprovement
-    }]));
-
-    console.log("Finished creating lookup maps.");
-
     for (const jur in allData) {
-      for (const meeting of allData[jur]) {
+      for (const meeting of allData[jur]!) {
         if (meeting.races) {
           for (const race of meeting.races) {
             if (race.runs) {
-              race.runs = race.runs.map(run => {
+              race.runs = race.runs.map((run: any) => {
                 const { dogId, trainerId, boxNumber } = run;
                 const { trackCode, distance } = { trackCode: meeting.trackCode, distance: race.distance };
 
@@ -205,13 +207,11 @@ app.get('/api/races/today/all', async (req, res) => {
                 const trainerStat = trainerStatsMap.get(trainerId);
                 const boxStat = boxBiasStatsMap.get(`${trackCode}-${boxNumber}`);
                 const recentStat = recentPerfStatsMap.get(`${dogId}-${trackCode}-${distance}`);
-                const lastGrade = lastRaceGradeMap.get(dogId);
-                const perfRating = performanceRatingsMap.get(dogId);
+                const lastGrade = lastRaceGradeMap.get(dogId) ?? null;
                 const runningStyle = runningStyleMap.get(dogId);
                 const trackSpecific = trackSpecificMap.get(`${dogId}-${trackCode}`);
                 const distanceSpecific = distanceSpecificMap.get(`${dogId}-${distance}`);
-                const boxPreferenceData = boxPerformanceMap.get(dogId);
-                const weightedForm = weightedFormMap.get(dogId);
+                const boxPreferenceData = boxPerformanceMap.get(dogId) ?? null;
 
                 return {
                   ...run,
@@ -225,11 +225,7 @@ app.get('/api/races/today/all', async (req, res) => {
                   classChange: run.incomingGrade && lastGrade 
                     ? `${lastGrade} -> ${run.incomingGrade}` 
                     : (run.incomingGrade ? `Debut -> ${run.incomingGrade}` : null),
-                  careerPerformanceScore: perfRating?.careerPerformanceScore ?? null,
-                  last5PerformanceScore: perfRating?.last5PerformanceScore ?? null,
-                  careerPrizeMoney: prizeMoneyMap.get(dogId) || null,
-                  consistencyScore: consistencyMap.get(dogId) || null,
-                  last5EarlySpeedRating: earlySpeedMap.get(dogId) || null,
+                  isDownGrade: calculateClassDrop(lastGrade, run.incomingGrade),
                   runningStyle: determineRunningStyle(
                     runningStyle?.avgFirstSplitPositionL5 ?? null,
                     runningStyle?.leadAtFirstBendRate ?? null
@@ -243,9 +239,6 @@ app.get('/api/races/today/all', async (req, res) => {
                   placeRateAtDistance: distanceSpecific?.placeRateAtDistance ?? null,
                   startsAtDistance: distanceSpecific?.startsAtDistance ?? null,
                   boxPreference: determineBoxPreference(boxNumber, boxPreferenceData),
-                  boxPreferenceData: boxPreferenceData || null,
-                  weightedAvgPlace: weightedForm?.weightedAvgPlace ?? null,
-                  recentImprovement: weightedForm?.recentImprovement ?? null,
                 };
               });
             }
@@ -254,7 +247,6 @@ app.get('/api/races/today/all', async (req, res) => {
       }
     }
 
-    console.log("Finished fetching and processing all data.");
     res.json(allData);
   } catch (error: any) {
     console.error('Fatal error in /api/races/today/all:', error.message, error.stack);
@@ -263,6 +255,28 @@ app.get('/api/races/today/all', async (req, res) => {
     if (db) {
       await db.close();
     }
+  }
+});
+
+app.get('/api/daily-races', async (req, res) => {
+  try {
+    const result = await getLatestDailyRaces();
+    
+    if (!result) {
+      return res.status(404).json({ 
+        error: 'No pre-computed data found',
+        message: 'Run `npm run daily-compute` first'
+      });
+    }
+    
+    res.json({
+      date: result.race_date,
+      computedAt: result.computed_at,
+      data: result.data
+    });
+  } catch (error: any) {
+    console.error('Error fetching daily races:', error.message);
+    res.status(500).json({ error: 'Failed to fetch daily races' });
   }
 });
 
