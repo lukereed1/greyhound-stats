@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Today's Greyhound Races</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>Today's Greyhound Races <button id="info-button" onclick="openModal()">i</button></h1>
+    
+    <div id="controls">
+        <button onclick="showUpcomingRaces()" class="active">Upcoming</button>
+        <button onclick="switchJurisdiction('VIC')">VIC</button><button onclick="switchJurisdiction('NSW')">NSW</button><button onclick="switchJurisdiction('QLD')">QLD</button><button onclick="switchJurisdiction('SA')">SA</button><button onclick="switchJurisdiction('WA')">WA</button><button onclick="switchJurisdiction('TAS')">TAS</button><button onclick="switchJurisdiction('ACT')">ACT</button><button onclick="switchJurisdiction('NT')">NT</button><button onclick="switchJurisdiction('NZ')">NZ</button>
+    </div>
+    
+    <div id="content">
+        <div id="venue-tabs"></div>
+        <div id="meeting-content"><p>Loading races...</p></div>
+    </div>
+    
+    <div id="info-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal()">&times;</span>
+            <h3>Column Explanations</h3>
+            <p><strong>Summary:</strong> Key strengths identified from data:</p>
+            <ul>
+                <li><span class="tag tag-win-strong">WIN</span> High career win %.</li>
+                <li><span class="tag tag-win-trk">WIN TRK</span> High win % at this specific track.</li>
+                <li><span class="tag tag-win-dist">WIN DIST</span> High win % at this distance.</li>
+                <li><span class="tag tag-fast">FAST</span> Time over L5 starts is significantly faster than field avg.</li>
+                <li><span class="tag tag-trainer">TRAINER</span> Trainer Strike Rate > 25%.</li>
+                <li><span class="tag tag-cls-drop">CLS DROP</span> Dropping down in grade (e.g. Gr 4 -> Gr 5).</li>
+                <li><span class="tag tag-starter">STARTER</span> Strong early speed (leads at first bend).</li>
+                <li><span class="tag tag-place-trk">PLACE</span> Consistent career placer.</li>
+                <li><span class="tag tag-place-trk">PLACE TRK</span> Consistent placer at this track.</li>
+                <li><span class="tag tag-place-trk">PLACE DIST</span> Consistent placer at this distance.</li>
+            </ul>
+            <hr>
+            <p><strong>Class:</strong> Shows the grade change from the dog's last start to today's race. A dog moving from a higher to a lower number (e.g., 4→5) is dropping down in class, which can be a significant advantage.</p>
+            <p><strong>Running Style:</strong> Classifies dogs as Early (frontrunners who lead from the start), Mid (take lead after first bend), or Close (finishers who come from behind). Early pace dogs win ~35% of races.</p>
+            <p><strong>Box Pref:</strong> Indicates how this box draw suits the dog's historical performance. Green (Good) = running from their best-performing box group, Yellow (Neutral) = acceptable, Red (Poor) = running from a box group where they perform significantly worse.</p>
+            <p><strong>Box Bias %:</strong> The historical win percentage for all greyhounds starting from this specific box at this specific track.</p>
+            <p><strong>Lead @ 1st %:</strong> The percentage of races where this dog leads at the first bend. Higher percentages indicate strong early speed.</p>
+            <p><strong>Trainer %:</strong> The trainer's win strike-rate from all recorded starts in the database.</p>
+            <p><strong>Total Runs:</strong> The dog's total number of career starts.</p>
+            <p><strong>Win % / Place %:</strong> The dog's overall career win and place (top 3) percentages.</p>
+            <p><strong>Trk/Dist Exp:</strong> The number of previous starts this dog has had at this specific track (`Trk Exp`) and over this specific distance (`Dist Exp`). A higher number indicates more experience.</p>
+            <p><strong>Win/Place @ Track:</strong> Win and place percentages specifically at this track.</p>
+            <p><strong>Win/Place @ Dist:</strong> Win and place percentages at this specific distance regardless of track.</p>
+            <p><strong>Avg T/D L5:</strong> The dog's average time over its last 5 starts at this specific Track and Distance.</p>
+            <p><strong>Avg T/D vs Field:</strong> Compares the dog's "Avg T/D L5" to the average of all other active runners in this race. Negative green number = faster than field average.</p>
+            <p><strong>Avg Spl L5:</strong> The dog's average first split time over its last 5 starts at this specific Track and Distance.</p>
+            <p><strong>Avg Spl vs Field:</strong> Compares the dog's "Avg Spl L5" to the average of all other active runners in this race. Negative green number = faster early speed than the field.</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
