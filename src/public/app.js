@@ -267,13 +267,13 @@ function switchJurisdiction(jurisdiction) {
 }
 
 async function loadAllRaces() {
-    try {        
-        const response = await fetch(`/api/daily-races`);
+    try {                        
+        const response = await fetch('/api/daily-races');
         if (!response.ok) { throw new Error(`Server returned status: ${response.status}`); }
         const result = await response.json();
         allRacesData = result.data;
         console.log(`Loaded races for ${result.date}, computed at ${result.computedAt}`);
-        showUpcomingRaces(); 
+        showUpcomingRaces();
     } catch (error) {
         console.error('Failed to load race data:', error);
         meetingContentDiv.innerHTML = `<p style="color: red;">Error: Could not fetch race data. Run 'npm run daily-compute' first.</p>`;

@@ -3,6 +3,7 @@ node_modules
 runs.db
 runs.db-shm
 runs.db-wal
+runs.db-journal
 supabase/.env
 supabase/.temp
 dist

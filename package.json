@@ -2,25 +2,26 @@
   "name": "greyhound-stats",
   "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "deploy": "gh-pages -d src/public",
+  "scripts": {    
     "dev": "tsx src/server.ts",
     "weekly-scrape": "tsx src/scripts/weekly-scrape.ts",
     "daily-compute": "tsx src/scripts/daily-compute.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "npx tsx src/server.ts"
   },
   "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.10",
     "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/node": "^24.9.1",
-    "gh-pages": "^6.3.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.2",
     "axios": "^1.12.2",
     "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
