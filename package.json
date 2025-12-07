@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "deploy": "gh-pages -d src/public",
     "dev": "tsx src/server.ts",
     "weekly-scrape": "tsx src/scripts/weekly-scrape.ts",
     "daily-compute": "tsx src/scripts/daily-compute.ts",
@@ -13,6 +14,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.3",
     "@types/node": "^24.9.1",
+    "gh-pages": "^6.3.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
