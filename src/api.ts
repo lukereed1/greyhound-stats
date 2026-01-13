@@ -14,7 +14,7 @@ if (!BASE_URL || !API_KEY) {
 const apiClient = axios.create({
   baseURL: BASE_URL,
   headers: { 'accept': 'application/json', 'X-API-Key': API_KEY },
-  timeout: 10000
+  timeout: 60000
 });
 
 export const getBulkRuns = async (jurisdiction: string, year: number, month: number) => {

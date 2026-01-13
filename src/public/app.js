@@ -19,10 +19,12 @@ function processRaceData(race) {
     if (!race || !race.runs) return [];
     const activeRunners = race.runs.filter(r => !r.scratched && !r.isManuallyScratched && r.boxNumber);
     let totalAvgTime = 0, countAvgTime = 0, totalAvgSplit = 0, countAvgSplit = 0;
+    
     activeRunners.forEach(runner => {
         if (runner.avgTimeLast5TrackDist) { totalAvgTime += runner.avgTimeLast5TrackDist; countAvgTime++; }
         if (runner.avgSplitLast5TrackDist) { totalAvgSplit += runner.avgSplitLast5TrackDist; countAvgSplit++; }
     });
+    
     const fieldAvgTime = countAvgTime > 0 ? totalAvgTime / countAvgTime : null;
     const fieldAvgSplit = countAvgSplit > 0 ? totalAvgSplit / countAvgSplit : null;
     
@@ -55,22 +57,38 @@ function processRaceData(race) {
             runner.avgSplitVsField = (runner.avgSplitLast5TrackDist && fieldAvgSplit) ? runner.avgSplitLast5TrackDist - fieldAvgSplit : undefined;
                     
             const tags = [];
+            
             const trkWin = (runner.winRateAtTrack || 0) * 100;
             const distWin = (runner.winRateAtDistance || 0) * 100;
             const overallWin = (runner.winRate || 0) * 100;
+            
             const trkPlace = (runner.placeRateAtTrack || 0) * 100;
+            const distPlace = (runner.placeRateAtDistance || 0) * 100;
+            const overallPlace = (runner.placeRate || 0) * 100;
+            
             const leadPct = (runner.leadAtFirstBendRate || 0) * 100;
             const vsField = runner.avgTdVsField || 99;
             const vsSplit = runner.avgSplitVsField || 99;
             const trainerSR = (runner.trainerStrikeRate || 0) * 100;
 
-            // 1. Class Drop
-            if (runner.isDownGrade) tags.push({ text: 'CLS DROP', class: 'tag-cls-drop', priority: 12 });
+            // 1. Class Drop (Highest Priority)
+            if (runner.isDownGrade) tags.push({ text: 'CLS DROP', class: 'tag-cls-drop', priority: 15 });
 
-            // 2. Win Stats
-            if (trkWin >= 30 && (runner.startsAtTrack || 0) >= 3) tags.push({ text: 'WIN TRK', class: 'tag-win-trk', priority: 10 });
-            else if (distWin >= 30 && (runner.startsAtDistance || 0) >= 3) tags.push({ text: 'WIN DIST', class: 'tag-win-dist', priority: 9 });
-            else if (overallWin >= 25) tags.push({ text: 'WIN', class: 'tag-win-strong', priority: 8 });
+            // 2. Win Stats - Calculate eligible tags, sort by highest %, pick top one
+            let possibleWinTags = [];
+            // Criteria: Must be >30% and have >3 starts to count as a specific stats, or >25% for overall
+            if (trkWin >= 30 && (runner.startsAtTrack || 0) >= 3) 
+                possibleWinTags.push({ text: 'WIN TRK', class: 'tag-win-trk', priority: 12, val: trkWin });
+            if (distWin >= 30 && (runner.startsAtDistance || 0) >= 3) 
+                possibleWinTags.push({ text: 'WIN DIST', class: 'tag-win-dist', priority: 12, val: distWin });
+            if (overallWin >= 25) 
+                possibleWinTags.push({ text: 'WIN', class: 'tag-win-strong', priority: 12, val: overallWin });
+
+            if (possibleWinTags.length > 0) {
+                // Sort by Percentage descending so we only show the strongest stat
+                possibleWinTags.sort((a, b) => b.val - a.val);
+                tags.push(possibleWinTags[0]); 
+            }
 
             // 3. Trainer
             if (trainerSR > 25) tags.push({ text: 'TRAINER', class: 'tag-trainer', priority: 11 });
@@ -79,13 +97,25 @@ function processRaceData(race) {
             if (vsField <= -0.15) tags.push({ text: 'FAST', class: 'tag-fast', priority: 7 });
             if (leadPct >= 40 || vsSplit <= -0.1) tags.push({ text: 'STARTER', class: 'tag-starter', priority: 6 });
 
-            // 5. Place Stats (only if not a huge winner)
-            if (tags.length < 2) {
-                if (trkPlace >= 60 && (runner.startsAtTrack || 0) >= 3) tags.push({ text: 'PLACE TRK', class: 'tag-place-trk', priority: 5 });
-                else if ((runner.placeRate || 0) * 100 >= 60) tags.push({ text: 'PLACE', class: 'tag-place-dist', priority: 4 });
+            // 5. Place Stats 
+            // Only add if we didn't add a WIN tag (optional preference), OR just add them if they qualify.
+            // Logic below: If no win tag, look for place tags.
+            if (possibleWinTags.length === 0) {
+                let possiblePlaceTags = [];
+                if (trkPlace >= 60 && (runner.startsAtTrack || 0) >= 3) 
+                    possiblePlaceTags.push({ text: 'PLACE TRK', class: 'tag-place-trk', priority: 5, val: trkPlace });
+                if (distPlace >= 60 && (runner.startsAtDistance || 0) >= 3)
+                     possiblePlaceTags.push({ text: 'PLACE DIST', class: 'tag-place-dist', priority: 5, val: distPlace }); 
+                if (overallPlace >= 60) 
+                    possiblePlaceTags.push({ text: 'PLACE', class: 'tag-place-dist', priority: 5, val: overallPlace });
+
+                if (possiblePlaceTags.length > 0) {
+                    possiblePlaceTags.sort((a, b) => b.val - a.val);
+                    tags.push(possiblePlaceTags[0]);
+                }
             }
             
-            // Sort by priority and take top 3
+            // Sort final list by priority and take top 3
             runner.summary = tags.sort((a, b) => b.priority - a.priority).slice(0, 3);
 
         } else {
@@ -101,8 +131,12 @@ function processRaceData(race) {
 // Render race card
 function renderSingleRaceHTML(race, meeting, jurisdiction) {
     const runners = processRaceData(race).sort((a, b) => (a.boxNumber || 99) - (b.boxNumber || 99));
+        
     return `
-        <h3>${meeting.trackName} (${jurisdiction}) - Race ${race.raceNumber} (${formatTime(race.raceStart)}): ${race.name || 'Unnamed Race'} - ${race.distance}m</h3>
+        <h3 >
+            ${meeting.trackName} (${jurisdiction}) - Race ${race.raceNumber} (${formatTime(race.raceStart)}): ${race.name || 'Unnamed Race'} - ${race.distance}m
+            <button class="info-button" onclick="openModal()" title="Information">i</button>
+        </h3>
         <div style="overflow-x:auto;">
         <table>
             <thead>
@@ -214,10 +248,13 @@ function showUpcomingRaces() {
 
     let html = `<div id="upcoming-controls">
                     <button onclick="showUpcomingRaces()">Refresh Upcoming Races</button>
+                    <button onclick="openModal()">Column Information</button>
                 </div>`;
     
     if (nextRaces.length === 0) {
-        html += `<p>No upcoming races for today.</p>`;
+        // Message when no races are found
+        html += `<p>No upcoming races found for today. <br><br>
+                 <small>This might be because all races have finished, data has not been scraped today, or there is a server issue. Try refreshing.</small></p>`;
         meetingContentDiv.innerHTML = html;
         return;
     }
@@ -259,7 +296,8 @@ function switchJurisdiction(jurisdiction) {
     const meetings = allRacesData[jurisdiction];
     if (!meetings || meetings.length === 0) {
         venueTabsDiv.innerHTML = '';
-        meetingContentDiv.innerHTML = `<p>No meetings found for this jurisdiction today.</p>`;
+        meetingContentDiv.innerHTML = `<p>No meetings found for ${jurisdiction} today. <br><br>
+        <small>Either no races are scheduled, or the data has not been scraped.</small></p>`;
         return;
     }
     venueTabsDiv.innerHTML = meetings.map((m, i) => `<button class="${i === 0 ? 'active' : ''}" data-trackcode="${m.trackCode}" onclick="switchVenue('${jurisdiction}', '${m.trackCode}')">${m.trackCode}</button>`).join('');
@@ -273,10 +311,17 @@ async function loadAllRaces() {
         const result = await response.json();
         allRacesData = result.data;
         console.log(`Loaded races for ${result.date}, computed at ${result.computedAt}`);
+                
         showUpcomingRaces();
+
     } catch (error) {
         console.error('Failed to load race data:', error);
-        meetingContentDiv.innerHTML = `<p style="color: red;">Error: Could not fetch race data. Run 'npm run daily-compute' first.</p>`;
+        
+        meetingContentDiv.innerHTML = `
+            <p style="color: red; font-weight: bold;">Error: Could not fetch race data.</p>
+            <p>1. Check if the server is running.<br>
+            2. Ensure 'npm run daily-compute' has been executed to generate the data.<br>
+            3. Data might not be scraped for today yet.</p>`;
     }
 }
 

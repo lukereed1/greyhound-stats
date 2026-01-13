@@ -102,17 +102,6 @@ tbody tr.clickable-row { cursor: pointer; }
 .scratched-style { text-decoration: line-through; color: #888; background-color: #f0f0f0 !important; }
 
 /* --- Modal Styles --- */
-#info-button {
-    padding: 1px 5px;
-    font-size: 11px;
-    font-family: monospace;
-    background-color: #fff;
-    border: 1px solid #000;
-    cursor: pointer;
-    vertical-align: middle;
-    position: relative;
-    top: -2px;
-}
 .modal {
     display: none; 
     position: fixed; 
@@ -146,3 +135,4 @@ tbody tr.clickable-row { cursor: pointer; }
     cursor: pointer;
     text-decoration: none;
 }
+
