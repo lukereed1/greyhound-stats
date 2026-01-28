@@ -5,8 +5,8 @@ import { formatInTimeZone } from 'date-fns-tz';
 const JURISDICTIONS = ['VIC', 'NSW', 'QLD', 'SA', 'WA', 'TAS', 'ACT', 'NT', 'NZ'];
 const SYDNEY_TIMEZONE = 'Australia/Sydney';
 
-const SCRAPE_YEAR = 2025;
-const SCRAPE_MONTH = 12;
+const SCRAPE_YEAR = 2026;
+const SCRAPE_MONTH = 1;
 
 async function scrapeMonth() {
   console.log('[MONTHLY SCRAPE] Starting monthly scrape...');

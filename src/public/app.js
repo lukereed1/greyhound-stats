@@ -98,8 +98,6 @@ function processRaceData(race) {
             if (leadPct >= 40 || vsSplit <= -0.1) tags.push({ text: 'STARTER', class: 'tag-starter', priority: 6 });
 
             // 5. Place Stats 
-            // Only add if we didn't add a WIN tag (optional preference), OR just add them if they qualify.
-            // Logic below: If no win tag, look for place tags.
             if (possibleWinTags.length === 0) {
                 let possiblePlaceTags = [];
                 if (trkPlace >= 60 && (runner.startsAtTrack || 0) >= 3) 
@@ -319,9 +317,7 @@ async function loadAllRaces() {
         
         meetingContentDiv.innerHTML = `
             <p style="color: red; font-weight: bold;">Error: Could not fetch race data.</p>
-            <p>1. Check if the server is running.<br>
-            2. Ensure 'npm run daily-compute' has been executed to generate the data.<br>
-            3. Data might not be scraped for today yet.</p>`;
+            <p>Data might not be scraped for today yet. Try refreshing.</p>`;
     }
 }
 
